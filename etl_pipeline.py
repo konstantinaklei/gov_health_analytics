@@ -39,18 +39,14 @@ def generate_dirty_data(num_rows=300):
     base_date = datetime(2023, 1, 1)
     
     for _ in range(num_rows):
-        # 80% chance of clean region, 20% dirty
         if random.random() > 0.2:
             region = random.choice(regions)
         else:
             region = random.choice(dirty_regions)
-            
-        # 10% chance of NaN
         if random.random() < 0.1:
             region = np.nan
             
         date_obj = base_date + timedelta(days=random.randint(0, 150))
-        # Mix date formats
         if random.random() < 0.3:
             date_str = date_obj.strftime("%d/%m/%Y")
         elif random.random() < 0.6:
@@ -65,7 +61,6 @@ def generate_dirty_data(num_rows=300):
         dose_2 = int(dose_1 * random.uniform(0.5, 0.9))
         total_vaccinations = dose_1 + dose_2
         
-        # introduce dirty numbers
         if random.random() < 0.1:
             dose_1 = -abs(dose_1) # negative
         if random.random() < 0.1:
@@ -86,26 +81,22 @@ def generate_dirty_data(num_rows=300):
         
     df = pd.DataFrame(data)
     
-    # Introduce duplicate rows (10% duplication)
     duplicates = df.sample(n=int(num_rows * 0.1), replace=True)
     df = pd.concat([df, duplicates], ignore_index=True)
     
-    # Add complete random NaN row
     df.loc[len(df)] = [np.nan] * 6
     return df
 
 def clean_data(df):
     metrics = {}
     initial_rows = len(df)
-    
-    # 1. Deduplicate
+
     df = df.drop_duplicates().copy()
     metrics['duplicates_dropped'] = initial_rows - len(df)
     
     initial_missing = df.isna().sum().to_dict()
     metrics['missing_before'] = sum(initial_missing.values())
     
-    # 2. Standardize Greek region strings
     def clean_region(val):
         if pd.isna(val):
             return val
@@ -116,15 +107,12 @@ def clean_data(df):
     df['region_el'] = df['region_el'].apply(clean_region)
     df['region_el'] = df['region_el'].fillna('UNKNOWN')
     
-    # Handle the string "NAN" from str conversion if it happened
     df.loc[df['region_el'] == 'NAN', 'region_el'] = 'UNKNOWN'
     
-    # 3. Clean numeric columns
     for col in ['total_vaccinations', 'dose_1', 'dose_2']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
         df[col] = df[col].abs()
         
-    # Impute numeric missing values per region median, gracefully fallback to overall median
     for col in ['total_vaccinations', 'dose_1', 'dose_2']:
         region_medians = df.groupby('region_el')[col].transform('median')
         df[col] = df[col].fillna(region_medians)
@@ -132,7 +120,6 @@ def clean_data(df):
         df[col] = df[col].fillna(overall_median)
         df[col] = df[col].astype(int, errors='ignore')
         
-    # 4. Standardize Dates
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     df = df.dropna(subset=['date']).copy()
     df['date'] = df['date'].dt.strftime('%Y-%m-%d')
@@ -146,7 +133,6 @@ def clean_data(df):
 def generate_visualizations(df, initial_missing, final_missing):
     sns.set_theme(style="whitegrid")
     
-    # Visualization 1: Data Cleaning Impact
     fig, ax = plt.subplots(figsize=(10, 6))
     categories = list(initial_missing.keys())
     before_vals = [initial_missing[c] for c in categories]
@@ -168,13 +154,11 @@ def generate_visualizations(df, initial_missing, final_missing):
     plt.savefig('data_cleaning_impact.png', dpi=300)
     plt.close()
     
-    # Visualization 2: Vaccination Trends
     fig, ax = plt.subplots(figsize=(12, 6))
     top_regions = df.groupby('region_el')['total_vaccinations'].sum().nlargest(5).index
     df_top = df[df['region_el'].isin(top_regions)].copy()
     df_top['date'] = pd.to_datetime(df_top['date'])
     
-    # Using errorbar=None due to deprecation of ci=None
     sns.lineplot(data=df_top, x='date', y='total_vaccinations', hue='region_el', marker='o', errorbar=None, ax=ax)
     
     ax.set_title('Vaccination Trends over Time (Top 5 Regions)')
@@ -186,18 +170,14 @@ def generate_visualizations(df, initial_missing, final_missing):
     plt.close()
 
 def generate_ai_report(df, metrics):
-    load_dotenv()
+    load_dotenv(override=True)
     
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("\n⚠️ Warning: GEMINI_API_KEY environment variable not set. Skipping AI report generation.")
+        print("\n Warning: GEMINI_API_KEY environment variable not set. Skipping AI report generation.")
         return
-         
-    client = genai.Client(
-        vertexai=True,
-        project="586740474009",
-        location="us-central1"
-    )
+
+    client = genai.Client(api_key=api_key)
     
     summary_data = {
         "metrics": metrics,
@@ -206,17 +186,12 @@ def generate_ai_report(df, metrics):
         "top_regions_summary": df.groupby('region_el')['total_vaccinations'].sum().to_dict(),
         "date_range": f"{df['date'].min()} to {df['date'].max()}"
     }
-    
     prompt = f"""
-    You are a Data Analyst for the Greek Ministry of Health.
-    Analyze the following health data summary from our latest ETL pipeline run and provide an executive report.
-    
+    Analyze the following Greek public health dataset summary and provide executive insights.
+
     Data Summary:
     {json.dumps(summary_data, indent=2)}
-    
-    Identify any anomalies (e.g., in data cleaning metrics or unexpected values) and provide strategic recommendations for improving data collection or vaccination efforts.
     """
-    
     try:
         response = client.models.generate_content(
             model='gemini-1.5-flash',
@@ -247,30 +222,26 @@ def generate_ai_report(df, metrics):
             for s in report.strategic_recommendations:
                 f.write(f"- {s}\n")
                 
-        print("✅ Successfully generated executive_report.md")
+        print(" Successfully generated executive_report.md")
     except Exception as e:
         print(f"Failed to generate AI report: {e}")
 
 if __name__ == "__main__":
-    print("🚀 Starting Greek Health Data ETL Pipeline...")
+    print("Starting Greek Health Data ETL Pipeline...")
     
-    # 1. Ingest/Scaffold Dirty Data
-    print("1️⃣ Generating dirty data scaffolding...")
+    print(" Generating dirty data scaffolding...")
     df_dirty = generate_dirty_data()
     print(f"   Generated {len(df_dirty)} rows of data with varying degrees of realism/inconsistencies.")
-    
-    # 2. Clean Data
-    print("2️⃣ Cleaning dataset (Pandas)...")
+
+    print("Cleaning dataset (Pandas)...")
     df_clean, metrics, initial_missing, final_missing = clean_data(df_dirty)
     print(f"   Cleaning Complete. Pipeline Metrics: {metrics}")
     
-    # 3. Create Visualizations
-    print("3️⃣ Generating visual analytics (Matplotlib/Seaborn)...")
+    print(" Generating visual analytics (Matplotlib/Seaborn)...")
     generate_visualizations(df_clean, initial_missing, final_missing)
     print("   Created 'data_cleaning_impact.png' and 'vaccination_trends.png'.")
     
-    # 4. Generate AI Report
-    print("4️⃣ Generating AI Executive Report via Google Gemini...")
+    print(" Generating AI Executive Report via Google Gemini...")
     generate_ai_report(df_clean, metrics)
     
-    print("🎉 ETL Pipeline execution complete.")
+    print(" ETL Pipeline execution complete.")
