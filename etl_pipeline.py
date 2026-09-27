@@ -171,13 +171,15 @@ def generate_visualizations(df, initial_missing, final_missing):
 
 def generate_ai_report(df, metrics):
     load_dotenv(override=True)
-    
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("\n Warning: GEMINI_API_KEY environment variable not set. Skipping AI report generation.")
         return
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options={'api_version': 'v1alpha'}
+    )
     
     summary_data = {
         "metrics": metrics,
