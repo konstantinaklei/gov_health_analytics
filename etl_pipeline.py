@@ -176,10 +176,7 @@ def generate_ai_report(df, metrics):
         print("\n Warning: GEMINI_API_KEY environment variable not set. Skipping AI report generation.")
         return
 
-    client = genai.Client(
-        api_key=api_key,
-        http_options={'api_version': 'v1alpha'}
-    )
+    client = genai.Client(api_key=api_key)
     
     summary_data = {
         "metrics": metrics,
@@ -196,7 +193,7 @@ def generate_ai_report(df, metrics):
     """
     try:
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-3.8-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
